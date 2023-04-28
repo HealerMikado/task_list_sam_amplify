@@ -12,7 +12,7 @@ function Header({user}) {
           Amazon Serverless Model (SAM) and Amazon Amplify. The code idea of this app 
           is to reproduce this{' '}
           <a href='https://catalog.us-east-1.prod.workshops.aws/workshops/841ce16b-9d86-48ac-a3f6-6a1b29f95d2b/en-US'>workshop</a> 
-          {' '}rom AWS with python instead of node for the lambdas source code, and ReactJs
+          {' '}from AWS with python instead of node for the lambdas source code, and ReactJs
           instead of VueJs. I choose to add a authentification layer with AWS Congnito too.
         </p>
         <LogoutButton />
