@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Tasks REST API Service
+
+Globals:
+  Function:
+    Runtime: nodejs14.x
+    Timeout: 3
+  Api:
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+      AllowOrigin: "'*'"
+      AllowCredentials: "'*'"
+
+Resources:
+  TasksApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: v1
+      Auth:
+        DefaultAuthorizer: MyAuth
+        Authorizers:
+          MyAuth:
+            Type: COGNITO_USER_POOLS
+            UserPoolArn:
+              - arn:aws:cognito-idp:eu-west-3:324873085553:userpool/eu-west-3_0rep9wioh
+            IdentitySource: method.request.header.Authorization
+        AddDefaultAuthorizerToCorsPreflight: False
+
+  
+  # CreateTask Lambda Function
+  CreateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/createTask
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        PostTaskFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: POST
+            Auth:
+              Authorizer: MyAuth
+
+  GetTasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/getTasks
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        GetTasksFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: GET
+            Auth:
+              Authorizer: MyAuth
+
+  GetTaskByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/getTaskById
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        GetByIdFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{id}
+            Method: GET
+            Auth:
+              Authorizer: MyAuth
+
+  DeleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/deleteTask
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - S3CrudPolicy:
+            BucketName: !Ref UploadsBucket
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+          S3_BUCKET: !Ref UploadsBucket
+      Events:
+        DeleteByIdFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{id}
+            Method: DELETE
+            Auth:
+              Authorizer: MyAuth
+
+  GetSignedUrlPutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/getSignedUrlPut
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref UploadsBucket
+          TASKS_TABLE: !Ref TasksTable
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref UploadsBucket
+      Events:
+        GetSignedUrlFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /signedUrlPut
+            Method: GET
+            Auth:
+              Authorizer: MyAuth
+
+  GetSignedUrlGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/getSignedUrlGet
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref UploadsBucket
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref UploadsBucket
+      Events:
+        GetSignedUrlFunctionApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /signedUrlGet
+            Method: GET
+            Auth:
+              Authorizer: MyAuth
+
+  DetectLabelsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/handlers/detectLabels
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+      Events:
+        ObjectCreatedEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref UploadsBucket
+            Events: s3:ObjectCreated:*
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - RekognitionDetectOnlyPolicy: {}
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject*
+              Resource: !Sub "arn:aws:s3:::uploads-${AWS::StackName}-${AWS::Region}-${AWS::AccountId}*"
+
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "uploads-${AWS::StackName}-${AWS::Region}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - HEAD
+            AllowedOrigins:
+              - "*"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  # Create DynamoDB table
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "user"
+          AttributeType: "S"
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "user"
+          KeyType: "HASH"
+        - AttributeName: "id"
+          KeyType: "RANGE"
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  TasksApi:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${TasksApi}.execute-api.${AWS::Region}.amazonaws.com/v1/"
+  S3BucketName:
+    Description: S3 bucket for file uploads
+    Value: !Ref UploadsBucket
